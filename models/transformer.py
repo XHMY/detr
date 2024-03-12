@@ -283,31 +283,36 @@ class LoRAMultiheadAttention(nn.MultiheadAttention):
         else:
             self.in_proj_weight = None
             self.in_proj_bias = None
-            self.q_proj = None
-            self.k_proj = None
-            self.v_proj = None
-            self.qkv_proj = lora.Linear(3 * embed_dim, embed_dim, r=r, bias=False)
+            self.q_proj = lora.Linear(embed_dim, embed_dim, r=r, bias=False)
+            self.k_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.v_proj = lora.Linear(embed_dim, embed_dim, r=r, bias=False)
 
         self.out_proj = lora.Linear(embed_dim, embed_dim, r=r, bias=self.out_proj.bias is not None)
 
     def forward(self, query, key, value, key_padding_mask=None,
                 need_weights=True, attn_mask=None, average_attn_weights=True,
                 is_causal=False):
-        if self.qkv_proj is not None:
-            qkv = self.qkv_proj(torch.cat([query, key, value], dim=-1))
-            query, key, value = qkv.split(self.embed_dim, dim=-1)
-        else:
-            if self.q_proj_weight is not None:
-                query = self.q_proj(query)
-            if self.k_proj_weight is not None:
-                key = self.k_proj(key)
-            if self.v_proj_weight is not None:
-                value = self.v_proj(value)
+        
+        query = self.q_proj(query)
+        key = self.k_proj(key)
+        value = self.v_proj(value)
 
-        attn_output, attn_output_weights = super().forward(
-            query, key, value, key_padding_mask=key_padding_mask,
-            need_weights=need_weights, attn_mask=attn_mask,
-            average_attn_weights=average_attn_weights, is_causal=is_causal)
+        attn_output, attn_output_weights = F.multi_head_attention_forward(
+            query, key, value, self.embed_dim, self.num_heads,
+            None, None,  # in_proj_weight and in_proj_bias are None
+            self.bias_k, self.bias_v, self.add_zero_attn,
+            self.dropout, self.out_proj.weight, self.out_proj.bias,
+            training=self.training,
+            key_padding_mask=key_padding_mask,
+            need_weights=need_weights,
+            attn_mask=attn_mask,
+            use_separate_proj_weight=True,
+            q_proj_weight=self.q_proj.weight,
+            k_proj_weight=self.k_proj.weight,
+            v_proj_weight=self.v_proj.weight,
+            average_attn_weights=average_attn_weights,
+            is_causal=is_causal
+        )
 
         attn_output = self.out_proj(attn_output)
         return attn_output, attn_output_weights
