@@ -55,6 +55,7 @@ def get_args_parser():
     parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
+    parser.add_argument('--mha_type', default='pure_lora', type=str, choices=('pure_lora', 'ori', 'lora'))
 
     # * Segmentation
     parser.add_argument('--masks', action='store_true',
