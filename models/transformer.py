@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 
+import loralib as lora
 
 class Transformer(nn.Module):
 
@@ -129,7 +130,7 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
         super().__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        self.self_attn = LoRAMultiheadAttention(d_model, nhead, dropout=dropout)
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
@@ -189,8 +190,8 @@ class TransformerDecoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
         super().__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        self.self_attn = LoRAMultiheadAttention(d_model, nhead, dropout=dropout)
+        self.multihead_attn = LoRAMultiheadAttention(d_model, nhead, dropout=dropout)
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
@@ -267,6 +268,49 @@ class TransformerDecoderLayer(nn.Module):
                                     tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
         return self.forward_post(tgt, memory, tgt_mask, memory_mask,
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
+
+
+class LoRAMultiheadAttention(nn.MultiheadAttention):
+    def __init__(self, embed_dim, num_heads, dropout=0., bias=True, add_bias_kv=False, add_zero_attn=False,
+                 kdim=None, vdim=None, batch_first=False, device=None, dtype=None, r=16):
+        super().__init__(embed_dim, num_heads, dropout, bias, add_bias_kv, add_zero_attn,
+                         kdim, vdim, batch_first, device, dtype)
+
+        if not self._qkv_same_embed_dim:
+            self.q_proj = lora.Linear(embed_dim, embed_dim, r=r)
+            self.k_proj = nn.Linear(embed_dim, self.kdim)
+            self.v_proj = lora.Linear(embed_dim, self.vdim, r=r)
+        else:
+            self.in_proj_weight = None
+            self.in_proj_bias = None
+            self.q_proj = None
+            self.k_proj = None
+            self.v_proj = None
+            self.qkv_proj = lora.Linear(3 * embed_dim, embed_dim, r=r, bias=False)
+
+        self.out_proj = lora.Linear(embed_dim, embed_dim, r=r, bias=self.out_proj.bias is not None)
+
+    def forward(self, query, key, value, key_padding_mask=None,
+                need_weights=True, attn_mask=None, average_attn_weights=True,
+                is_causal=False):
+        if self.qkv_proj is not None:
+            qkv = self.qkv_proj(torch.cat([query, key, value], dim=-1))
+            query, key, value = qkv.split(self.embed_dim, dim=-1)
+        else:
+            if self.q_proj_weight is not None:
+                query = self.q_proj(query)
+            if self.k_proj_weight is not None:
+                key = self.k_proj(key)
+            if self.v_proj_weight is not None:
+                value = self.v_proj(value)
+
+        attn_output, attn_output_weights = super().forward(
+            query, key, value, key_padding_mask=key_padding_mask,
+            need_weights=need_weights, attn_mask=attn_mask,
+            average_attn_weights=average_attn_weights, is_causal=is_causal)
+
+        attn_output = self.out_proj(attn_output)
+        return attn_output, attn_output_weights
 
 
 def _get_clones(module, N):
