@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set the base directory where COCO will be downloaded
-base_dir="/scratch/open_coco"
+base_dir="/tmp/zengyif/coco"
 
 # Create the base directory if it doesn't exist
 mkdir -p "$base_dir"
