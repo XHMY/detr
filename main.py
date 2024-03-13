@@ -248,7 +248,7 @@ def main(args):
 
     if args.train_cls_layeronly:
         for k, v in model_without_ddp.named_parameters():
-            if k.startswith('class_embed'):
+            if k.startswith('class_labels_classifier') or k.startswith('bbox_predictor'):
                 v.requires_grad = True
             else:
                 v.requires_grad = False
