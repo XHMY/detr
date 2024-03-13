@@ -146,9 +146,7 @@ def main(args):
     random.seed(seed)
 
     model, criterion, postprocessors = build_model(args)
-
-    if args.lora:
-        model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
 
     model.to(device)
 
@@ -249,7 +247,6 @@ def main(args):
         return
 
     if args.train_cls_layeronly:
-        assert args.weight, "weight is required"
         for k, v in model_without_ddp.named_parameters():
             if k.startswith('class_embed'):
                 v.requires_grad = True
