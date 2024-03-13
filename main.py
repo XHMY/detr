@@ -5,7 +5,6 @@ import json
 import random
 import time
 from pathlib import Path
-import loralib as lora
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
@@ -15,6 +14,7 @@ import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch
 from models import build_model
+from peft import LoraConfig, get_peft_model
 
 
 def get_args_parser():
@@ -57,7 +57,17 @@ def get_args_parser():
     parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
-    parser.add_argument('--mha_type', default='lora', type=str, choices=('ori', 'lora'))
+
+    # * PEFT
+    parser.add_argument('--lora', action='store_true', help="Use PEFT LoRA")
+    parser.add_argument('--r', default=16, type=int, help="LoRA Rank")
+    parser.add_argument('--target_modules', nargs='+', default=["q_proj", "v_proj"],
+                        help='The names of the modules to apply the adapter to.')
+    parser.add_argument('--modules_to_save', nargs='+', default=["class_embed"],
+                        help='List of modules apart from adapter layers to be set as trainable and saved in the final checkpoint.')
+    parser.add_argument('--lora_dropout', default=0.1, type=float)
+    parser.add_argument('--lora_alpha', default=16, type=int, help="LoRA Alpha")
+
 
     # * Segmentation
     parser.add_argument('--masks', action='store_true',
@@ -105,6 +115,16 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     return parser
 
+def print_trainable_parameters(model):
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+    print(
+        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param:.2f}"
+    )
 
 def main(args):
     utils.init_distributed_mode(args)
@@ -172,6 +192,10 @@ def main(args):
 
     output_dir = Path(args.output_dir)
 
+    if args.output_dir:
+        with (output_dir / "config.json").open("w") as f:
+            json.dump(vars(args), f, indent=4)
+
     if args.frozen_weights is not None:
         checkpoint = torch.load(args.frozen_weights, map_location='cpu')
         state_dict = checkpoint['model']
@@ -194,11 +218,19 @@ def main(args):
         state_dict = checkpoint['model']
         state_dict = {k: v for k, v in state_dict.items() if not k.startswith('class_embed')}
         msg = model_without_ddp.load_state_dict(state_dict, strict=False)
-        lora.mark_only_lora_as_trainable(model_without_ddp)
         for k, v in model_without_ddp.named_parameters():
             if k.startswith('class_embed'):
                 v.requires_grad = True
         print(msg)
+
+    if args.eval:
+        test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
+                                              data_loader_val, base_ds, device, args.output_dir)
+        if args.output_dir:
+            utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
+        return
+    
+
     if args.train_cls_layeronly:
         assert args.weight, "weight is required"
         for k, v in model_without_ddp.named_parameters():
@@ -207,12 +239,20 @@ def main(args):
             else:
                 v.requires_grad = False
 
-    if args.eval:
-        test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
-                                              data_loader_val, base_ds, device, args.output_dir)
-        if args.output_dir:
-            utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
-        return
+    if args.lora:
+        assert args.weight, "weight is required"
+        assert not args.train_cls_layeronly and not args.frozen_weights, "LoRA is not compatible with weight freeze or training only cls layer"
+
+        config = LoraConfig(
+            r=args.r,
+            lora_alpha=args.lora_alpha,
+            target_modules=args.target_modules,
+            lora_dropout=args.lora_dropout,
+            bias="none",
+            modules_to_save=args.modules_to_save,
+        )
+        model_without_ddp = get_peft_model(model_without_ddp, config)
+        print_trainable_parameters(model_without_ddp)
 
     print("Start training")
     start_time = time.time()
