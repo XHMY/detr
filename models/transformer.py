@@ -270,10 +270,8 @@ class TransformerDecoderLayer(nn.Module):
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
 
 def get_MHA_class(mha_type):
-    if mha_type == "pure_lora":
+    if mha_type == "lora":
         return LoRAMultiheadAttention
-    elif mha_type == "lora":
-        raise NotImplementedError
     else:
         return nn.MultiheadAttention
 

@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+import loralib as lora
 from PIL import Image
 
 import util.box_ops as box_ops
@@ -27,9 +28,14 @@ class DETRsegm(nn.Module):
         self.detr = detr
 
         if freeze_detr:
-            for p in self.parameters():
-                p.requires_grad_(False)
+            # for p in self.parameters():
+            #     p.requires_grad_(False)
+            for name, param in self.detr.named_parameters():
+                if not name.startswith("class_embed"):
+                    param.requires_grad_(False)
 
+        lora.mark_only_lora_as_trainable(self.detr.transformer)
+        
         hidden_dim, nheads = detr.transformer.d_model, detr.transformer.nhead
         self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
         self.mask_head = MaskHeadSmallConv(hidden_dim + nheads, [1024, 512, 256], hidden_dim)
