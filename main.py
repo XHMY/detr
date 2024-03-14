@@ -30,6 +30,7 @@ def get_args_parser():
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
     parser.add_argument('--eval_interval', default=1, type=int)
+    parser.add_argument('--hf_model', default="facebook/detr-resnet-50", type=str)
 
     # Model parameters
     parser.add_argument('--frozen_weights', type=str, default=None,
@@ -62,7 +63,7 @@ def get_args_parser():
 
     # * PEFT
     parser.add_argument('--lora', action='store_true', help="Use PEFT LoRA")
-    parser.add_argument('--r', default=16, type=int, help="LoRA Rank")
+    parser.add_argument('--lora_rank', default=16, type=int, help="LoRA Rank")
     parser.add_argument('--target_modules', nargs='+', default=["q_proj", "v_proj"],
                         help='The names of the modules to apply the adapter to.')
     parser.add_argument('--modules_to_save', nargs='+', default=["class_labels_classifier", "bbox_predictor"],
@@ -120,10 +121,18 @@ def get_args_parser():
 def print_trainable_parameters(model):
     trainable_params = 0
     all_param = 0
-    for _, param in model.named_parameters():
+    trainable_params_names = []
+    nontrainable_params_names = []
+    for name, param in model.named_parameters():
         all_param += param.numel()
         if param.requires_grad:
+            trainable_params_names.append(name)
             trainable_params += param.numel()
+        else:
+            nontrainable_params_names.append(name)
+    
+    print("Trainable parameters:", trainable_params_names)
+    print("Non-trainable parameters:", nontrainable_params_names)
     print(
         f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param:.2f}"
     )
@@ -146,7 +155,7 @@ def main(args):
     random.seed(seed)
 
     model, criterion, postprocessors = build_model(args)
-    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+    model = DetrForObjectDetection.from_pretrained(args.hf_model)
 
     model.to(device)
 
@@ -203,7 +212,7 @@ def main(args):
 
     if args.lora:
         config = LoraConfig(
-            r=args.r,
+            r=args.lora_rank,
             lora_alpha=args.lora_alpha,
             target_modules=args.target_modules,
             lora_dropout=args.lora_dropout,
@@ -211,7 +220,6 @@ def main(args):
             modules_to_save=args.modules_to_save,
         )
         model_without_ddp = get_peft_model(model_without_ddp, config)
-        print_trainable_parameters(model_without_ddp)
     elif args.frozen_weights is not None:
         checkpoint = torch.load(args.frozen_weights, map_location='cpu')
         state_dict = checkpoint['model']
@@ -252,6 +260,8 @@ def main(args):
                 v.requires_grad = True
             else:
                 v.requires_grad = False
+
+    print_trainable_parameters(model_without_ddp)
 
     print("Start training")
     start_time = time.time()
