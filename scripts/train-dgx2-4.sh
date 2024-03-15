@@ -24,15 +24,32 @@
 # --coco_path data/street_work --num_workers 6 --batch_size 4 \
 # --output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
 
-export OUTPUT_DIR=outputs/r101_lora_v1_street_work
+# export OUTPUT_DIR=outputs/r101_lora_v1.3-a256_street_work
+# mkdir -p $OUTPUT_DIR
+# python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
+# --lr_drop 500 --epochs 1000 --eval_interval 40 \
+# --hf_model facebook/detr-resnet-101 \
+# --lora_rank 32 --lora_alpha 128 --lora --lora_dropout 0 --target_modules q_proj v_proj conv1 conv2 conv3 fc1 fc2 \
+# --coco_path data/street_work --num_workers 6 --batch_size 4 \
+# --output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
+
+export OUTPUT_DIR=outputs/r101_backbne_freeze_b+enc_street_work
 mkdir -p $OUTPUT_DIR
 python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
 --lr_drop 500 --epochs 1000 --eval_interval 40 \
 --hf_model facebook/detr-resnet-101 \
---lora_rank 32 --lora --target_modules q_proj v_proj conv1 conv2 conv3 fc1 fc2 \
+--freeze_layers model.backbone model.encoder \
 --coco_path data/street_work --num_workers 6 --batch_size 4 \
 --output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
 
+export OUTPUT_DIR=outputs/r101_backbne_freeze_b+enc+dec_street_work
+mkdir -p $OUTPUT_DIR
+python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
+--lr_drop 500 --epochs 1000 --eval_interval 40 \
+--hf_model facebook/detr-resnet-101 \
+--freeze_layers model.backbone model.encoder model.decoder \
+--coco_path data/street_work --num_workers 6 --batch_size 4 \
+--output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
 
 # export OUTPUT_DIR=outputs/lora_mask
 # mkdir -p $OUTPUT_DIR

@@ -15,6 +15,7 @@ from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch
 from models import build_model
 from peft import LoraConfig, get_peft_model
+import peft
 
 from transformers import DetrForObjectDetection
 
@@ -35,6 +36,7 @@ def get_args_parser():
     # Model parameters
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
+    parser.add_argument('--freeze_layers', nargs='+', default=None, help="Freeze the Layers")
     parser.add_argument('--train_cls_layeronly', action='store_true', default=False)
     # * Backbone
     parser.add_argument('--backbone', default='resnet50', type=str,
@@ -66,7 +68,7 @@ def get_args_parser():
     parser.add_argument('--lora_rank', default=16, type=int, help="LoRA Rank")
     parser.add_argument('--target_modules', nargs='+', default=["q_proj", "v_proj"],
                         help='The names of the modules to apply the adapter to.')
-    parser.add_argument('--modules_to_save', nargs='+', default=["class_labels_classifier", "bbox_predictor"],
+    parser.add_argument('--modules_to_save', nargs='+', default=["class_labels_classifier", "bbox_predictor", "model.input_projection"],
                         help='List of modules apart from adapter layers to be set as trainable and saved in the final checkpoint.')
     parser.add_argument('--lora_dropout', default=0.1, type=float)
     parser.add_argument('--lora_alpha', default=16, type=int, help="LoRA Alpha")
@@ -153,6 +155,9 @@ def main(args):
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
+    # torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.deterministic = False
+
 
     model, criterion, postprocessors = build_model(args)
     model = DetrForObjectDetection.from_pretrained(args.hf_model)
@@ -217,6 +222,7 @@ def main(args):
             target_modules=args.target_modules,
             lora_dropout=args.lora_dropout,
             bias="none",
+            task_type=peft.TaskType.FEATURE_EXTRACTION,
             modules_to_save=args.modules_to_save,
         )
         model_without_ddp = get_peft_model(model_without_ddp, config)
@@ -246,6 +252,13 @@ def main(args):
             if k.startswith('class_embed'):
                 v.requires_grad = True
         print(msg)
+
+    if args.freeze_layers:
+        for k, v in model_without_ddp.named_parameters():
+            if any(k.startswith(lay) for lay in args.freeze_layers) and "lora" not in k:
+                v.requires_grad = False
+            else:
+                v.requires_grad = True
 
     if args.eval:
         test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
