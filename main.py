@@ -37,6 +37,7 @@ def get_args_parser():
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     parser.add_argument('--freeze_layers', nargs='+', default=None, help="Freeze the Layers")
+    parser.add_argument('--train_layers', nargs='+', default=None, help="Train the Layers")
     parser.add_argument('--train_cls_layeronly', action='store_true', default=False)
     # * Backbone
     parser.add_argument('--backbone', default='resnet50', type=str,
@@ -255,10 +256,17 @@ def main(args):
 
     if args.freeze_layers:
         for k, v in model_without_ddp.named_parameters():
-            if any(k.startswith(lay) for lay in args.freeze_layers) and "lora" not in k:
+            if any(lay in k for lay in args.freeze_layers) and "lora" not in k:
                 v.requires_grad = False
             else:
                 v.requires_grad = True
+    elif args.train_layers:
+        assert args.frozen_weights is None, "Cannot train layers and use frozen weights at the same time"
+        for k, v in model_without_ddp.named_parameters():
+            if any(lay in k for lay in args.train_layers) or "lora" in k:
+                v.requires_grad = True
+            else:
+                v.requires_grad = False
 
     if args.eval:
         test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,

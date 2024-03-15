@@ -33,21 +33,30 @@
 # --coco_path data/street_work --num_workers 6 --batch_size 4 \
 # --output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
 
-export OUTPUT_DIR=outputs/r101_backbne_freeze_b+enc_street_work
-mkdir -p $OUTPUT_DIR
-python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
---lr_drop 500 --epochs 1000 --eval_interval 40 \
---hf_model facebook/detr-resnet-101 \
---freeze_layers model.backbone model.encoder \
---coco_path data/street_work --num_workers 6 --batch_size 4 \
---output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
+#export OUTPUT_DIR=outputs/r101_backbne_freeze_b+enc_street_work
+#mkdir -p $OUTPUT_DIR
+#python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
+#--lr_drop 500 --epochs 1000 --eval_interval 40 \
+#--hf_model facebook/detr-resnet-101 \
+#--freeze_layers model.backbone model.encoder \
+#--coco_path data/street_work --num_workers 6 --batch_size 4 \
+#--output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
+#
+#export OUTPUT_DIR=outputs/r101_backbne_freeze_b+enc+dec_street_work
+#mkdir -p $OUTPUT_DIR
+#python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
+#--lr_drop 500 --epochs 1000 --eval_interval 40 \
+#--hf_model facebook/detr-resnet-101 \
+#--freeze_layers model.backbone model.encoder model.decoder \
+#--coco_path data/street_work --num_workers 6 --batch_size 4 \
+#--output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
 
-export OUTPUT_DIR=outputs/r101_backbne_freeze_b+enc+dec_street_work
+export OUTPUT_DIR=outputs/r101_train_qv_street_work
 mkdir -p $OUTPUT_DIR
 python -m torch.distributed.launch --nproc_per_node=4 --use_env main.py \
 --lr_drop 500 --epochs 1000 --eval_interval 40 \
 --hf_model facebook/detr-resnet-101 \
---freeze_layers model.backbone model.encoder model.decoder \
+--train_layers class_labels_classifier bbox_predictormodel.input_projection q_proj v_proj \
 --coco_path data/street_work --num_workers 6 --batch_size 4 \
 --output_dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/train.log
 
